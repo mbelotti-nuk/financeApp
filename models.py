@@ -118,11 +118,33 @@ class PortfolioGraphWindow(QDialog):
         self.table_view = QTableView()
         self.table_view.setAlternatingRowColors(True)
         self.table_view.verticalHeader().setDefaultSectionSize(40)  
+        self.table_view.horizontalScrollBar().setStyleSheet("""
+                QScrollBar:horizontal {
+                    height: 0px;
+                    border: 1px solid #E5E7EB;
+                    background-color: #F9FAFB;
+                    border-radius: 9px;
+                    margin: 3px 0px 3px 0px;
+                }
+                QScrollBar::handle:horizontal {
+                    background-color: #9CA3AF;
+                    border-radius: 7px;
+                    min-width: 30px;
+                    margin: 2px;
+                }
+                QScrollBar::handle:horizontal:hover {
+                    background-color: #6B7280;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                    border: none;
+                    background: none;
+                    width: 0px;
+                }
+            """)
         layout.addWidget(self.table_view)
         
         layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         
-        # Checkbox above the plot with bigger font
         self.inflation_checkbox = QCheckBox("Mostra serie in € reali (al netto dell'inflazione)")
         self.inflation_checkbox.clicked.connect(self.plot)
         checkbox_font = QFont("Segoe UI", 14, QFont.Weight.Bold)
@@ -130,7 +152,6 @@ class PortfolioGraphWindow(QDialog):
         self.inflation_checkbox.setStyleSheet("QCheckBox { color: #1f2937; padding: 10px; }")
         layout.addWidget(self.inflation_checkbox)
         
-        # Add more horizontal padding to make the plot narrower
         plot_container = QWidget()
         plot_layout = QHBoxLayout(plot_container)
         plot_layout.setContentsMargins(80, 0, 80, 0)  # Increased left and right padding
@@ -249,8 +270,15 @@ class PortfolioGraphWindow(QDialog):
         self.ticker_prices = {}
         self.ticker_yearly_values = {}
         
-        for ticker in sorted(tx_df['ticker'].unique()):
-            hist = yf.Ticker(ticker).history(
+        tickers_list = sorted(tx_df['ticker'].unique())
+        all_tickers = yf.Tickers(' '.join(tickers_list))
+
+        for ticker in tickers_list:
+            # hist = yf.Ticker(ticker).history(
+            #     start=self.first_ts.date(), 
+            #     end=self.end_ts.date() + timedelta(days=1)
+            # )
+            hist = all_tickers.tickers[ticker].history(
                 start=self.first_ts.date(), 
                 end=self.end_ts.date() + timedelta(days=1)
             )
@@ -314,7 +342,11 @@ class PortfolioGraphWindow(QDialog):
         yearly_capital = self.market_series.resample('YE').last()
         yearly_real_capital = self.real_market_series.resample('YE').last()
         yearly_returns = yearly_capital.pct_change().fillna(0)
-        
+
+        yearly_investment = self.invest_series.resample('YE').last()
+        yearly_gains = yearly_capital - yearly_investment
+        yearly_gains_returns =  (yearly_gains.diff()/yearly_gains.shift().abs()).fillna(0)
+
         # Calculate total dividends per year
         total_yearly_dividends = pd.Series(0.0, index=self.annual_infl.index)
         for ticker, ticker_divs in self.yearly_dividends.items():
@@ -330,11 +362,13 @@ class PortfolioGraphWindow(QDialog):
 
         table_data = {
             'Prezzo per azione (EUR)': prices.values, 
-            'Rendimento %': yearly_returns.values * 100,
-            'Inflazione %': self.annual_infl.values * 100,
-            'Dividendi (EUR)': total_yearly_dividends.values,
             'Capitale nominale (EUR)': yearly_capital.values,
-            'Capitale reale (EUR)': yearly_real_capital.values
+            'Capitale reale (EUR)': yearly_real_capital.values,
+            'Rendimento %': yearly_returns.values * 100,
+            'Guadagno nominale (EUR)': yearly_gains.values,
+            'Guadagno annualizzato %': yearly_gains_returns.values * 100,
+            'Inflazione %': self.annual_infl.values * 100,
+            'Dividendi (EUR)': total_yearly_dividends.values
         }
 
         if len(self.ticker_yearly_values) > 1:
@@ -344,9 +378,22 @@ class PortfolioGraphWindow(QDialog):
         model = PandasModel(df_table)
         self.table_view.setModel(model)
         
-        # Enhanced table styling
-        self.table_view.resizeColumnsToContents()
-        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # # Enhanced table styling
+        # self.table_view.resizeColumnsToContents()
+        # self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Set minimum column widths and enable horizontal scrolling
+        header = self.table_view.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setMinimumSectionSize(150)  # Minimum width for readability
+        
+        # Ensure each column has a reasonable minimum width
+        for column in range(model.columnCount()):
+            current_width = header.sectionSize(column)
+            min_width = max(150, len(str(df_table.columns[column])) * 8 + 20)  # Base on header text length
+            if current_width < min_width:
+                header.resizeSection(column, min_width)
+        
         
         # Set fonts
         table_font = QFont("Segoe UI", 16)
@@ -377,6 +424,7 @@ class PortfolioGraphWindow(QDialog):
         # Setup date axis
         date_ticks = [(i, dt.strftime("%b '%y")) for i, dt in enumerate(self.date_range) if dt.day == 1]
         self.plot_widget.getAxis('bottom').setTicks([date_ticks])
+        self.plot_widget.getAxis('bottom').setStyle(tickTextAngle=45)   # diagonal ticks
         
         # Plot main series
         self.plot_widget.plot(
