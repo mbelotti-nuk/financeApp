@@ -422,9 +422,8 @@ class PortfolioGraphWindow(QDialog):
         x_axis = np.arange(len(self.date_range))
         
         # Setup date axis
-        date_ticks = [(i, dt.strftime("%b '%y")) for i, dt in enumerate(self.date_range) if dt.day == 1]
+        date_ticks = [(i, dt.strftime("%b %y")) for i, dt in enumerate(self.date_range) if dt.day == 1]
         self.plot_widget.getAxis('bottom').setTicks([date_ticks])
-        self.plot_widget.getAxis('bottom').setStyle(tickTextAngle=45)   # diagonal ticks
         
         # Plot main series
         self.plot_widget.plot(
